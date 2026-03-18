@@ -301,7 +301,22 @@ const videoClose = document.getElementById('videoClose');
 
 let pixels = []; // each pixel: { x, y, w, h, wallIndex }
 let currentPattern = 0;
-const patterns = ['scatter', 'mosaic', 'flow', 'grid', 'wave'];
+const patterns = ['scatter', 'voronoi', 'flow', 'grid', 'threads', 'wave'];
+
+// Hidden hit canvas for pixel-perfect click detection on non-rectangular patterns
+const hitCanvas = document.createElement('canvas');
+const hitCtx = hitCanvas.getContext('2d', { willReadFrequently: true });
+let useHitCanvas = false;
+
+function wallIndexToColor(i) {
+  const val = i + 1;
+  return `rgb(${val & 0xFF},${(val >> 8) & 0xFF},0)`;
+}
+
+function colorToWallIndex(r, g) {
+  const val = r + (g << 8);
+  return val - 1;
+}
 
 // ---- Canvas setup ----
 function resizeCanvas() {
@@ -310,6 +325,8 @@ function resizeCanvas() {
   canvas.style.width = window.innerWidth + 'px';
   canvas.style.height = window.innerHeight + 'px';
   ctx.scale(devicePixelRatio, devicePixelRatio);
+  hitCanvas.width = window.innerWidth;
+  hitCanvas.height = window.innerHeight;
 }
 
 window.addEventListener('resize', () => {
@@ -322,15 +339,18 @@ function generate() {
   const W = window.innerWidth;
   const H = window.innerHeight;
   pixels = [];
+  useHitCanvas = false;
   ctx.clearRect(0, 0, W, H);
+  hitCtx.clearRect(0, 0, W, H);
 
   const pattern = patterns[currentPattern % patterns.length];
 
   if (pattern === 'scatter') generateScatter(W, H);
-  else if (pattern === 'mosaic') generateMosaic(W, H);
   else if (pattern === 'flow') generateFlow(W, H);
   else if (pattern === 'grid') generateGrid(W, H);
   else if (pattern === 'wave') generateWave(W, H);
+  else if (pattern === 'threads') generateThreads(W, H);
+  else if (pattern === 'voronoi') generateVoronoi(W, H);
 }
 
 function generateScatter(W, H) {
@@ -452,6 +472,101 @@ function generateWave(W, H) {
   }
 }
 
+function generateThreads(W, H) {
+  useHitCanvas = true;
+  const count = 400;
+  const seed = Math.random() * 1000;
+
+  for (let i = 0; i < count; i++) {
+    const wi = Math.floor(Math.random() * WALLS.length);
+    const w = WALLS[wi];
+    const alpha = 0.15 + Math.random() * 0.4;
+    const lineW = 0.5 + Math.random() * 2.5;
+
+    let x = Math.random() * W;
+    let y = Math.random() * H;
+
+    const points = [{ x, y }];
+    const steps = 30 + Math.floor(Math.random() * 60);
+    const stepLen = 8 + Math.random() * 20;
+    let angle = Math.random() * Math.PI * 2;
+
+    for (let s = 0; s < steps; s++) {
+      angle += (Math.sin(x * 0.005 + seed) + Math.cos(y * 0.005 + seed)) * 0.3;
+      angle += (Math.random() - 0.5) * 0.4;
+      x += Math.cos(angle) * stepLen;
+      y += Math.sin(angle) * stepLen;
+      points.push({ x, y });
+    }
+
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(${w.r},${w.g},${w.b},${alpha})`;
+    ctx.lineWidth = lineW;
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let p = 1; p < points.length; p++) ctx.lineTo(points[p].x, points[p].y);
+    ctx.stroke();
+
+    hitCtx.beginPath();
+    hitCtx.strokeStyle = wallIndexToColor(wi);
+    hitCtx.lineWidth = Math.max(lineW * 3, 8);
+    hitCtx.moveTo(points[0].x, points[0].y);
+    for (let p = 1; p < points.length; p++) hitCtx.lineTo(points[p].x, points[p].y);
+    hitCtx.stroke();
+  }
+}
+
+function generateVoronoi(W, H) {
+  useHitCanvas = true;
+  const seeds = WALLS.map((w, i) => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    wi: i,
+    w: w
+  }));
+
+  const step = 2;
+  const gridCols = Math.ceil(W / step);
+  const grid = new Uint8Array(gridCols * Math.ceil(H / step));
+
+  for (let py = 0; py < H; py += step) {
+    for (let px = 0; px < W; px += step) {
+      let minDist = Infinity;
+      let nearest = 0;
+      for (let s = 0; s < seeds.length; s++) {
+        const dx = px - seeds[s].x;
+        const dy = py - seeds[s].y;
+        const d = dx * dx + dy * dy;
+        if (d < minDist) {
+          minDist = d;
+          nearest = s;
+        }
+      }
+
+      grid[(py / step) * gridCols + (px / step)] = nearest;
+
+      const w = seeds[nearest].w;
+      ctx.fillStyle = `rgb(${w.r},${w.g},${w.b})`;
+      ctx.fillRect(px, py, step, step);
+
+      hitCtx.fillStyle = wallIndexToColor(seeds[nearest].wi);
+      hitCtx.fillRect(px, py, step, step);
+    }
+  }
+
+  ctx.fillStyle = 'rgba(10,10,10,0.7)';
+  for (let gy = 1; gy < Math.ceil(H / step) - 1; gy++) {
+    for (let gx = 1; gx < gridCols - 1; gx++) {
+      const idx = gy * gridCols + gx;
+      const current = grid[idx];
+      const right = grid[idx + 1];
+      const below = grid[idx + gridCols];
+      if (current !== right || current !== below) {
+        ctx.fillRect(gx * step, gy * step, step, step);
+      }
+    }
+  }
+}
+
 // ---- Regenerate ----
 regenBtn.addEventListener('click', () => {
   currentPattern++;
@@ -464,7 +579,16 @@ canvas.addEventListener('click', (e) => {
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
 
-  // Search pixels in reverse (top-most first)
+  if (useHitCanvas) {
+    const pixel = hitCtx.getImageData(Math.floor(mx), Math.floor(my), 1, 1).data;
+    if (pixel[0] === 0 && pixel[1] === 0) return;
+    const wi = colorToWallIndex(pixel[0], pixel[1]);
+    if (wi >= 0 && wi < WALLS.length) {
+      openLightbox(wi);
+    }
+    return;
+  }
+
   for (let i = pixels.length - 1; i >= 0; i--) {
     const p = pixels[i];
     if (mx >= p.x && mx <= p.x + p.w && my >= p.y && my <= p.y + p.h) {
