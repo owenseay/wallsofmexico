@@ -422,7 +422,7 @@ function generateFlow(W, H) {
 
 function generateGrid(W, H) {
   const size = 8 + Math.random() * 12;
-  const gap = 2;
+  const gap = Math.max(1, Math.round(size / 6));
   const cols = Math.floor(W / (size + gap));
   const rows = Math.floor(H / (size + gap));
   const offsetX = (W - cols * (size + gap)) / 2;
