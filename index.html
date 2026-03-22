@@ -148,6 +148,81 @@
     color: rgba(255,255,255,0.8);
   }
 
+  /* -- about overlay -- */
+  .about-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: rgba(0,0,0,0.85);
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    overflow-y: auto;
+  }
+
+  .about-overlay.open {
+    display: flex;
+    opacity: 1;
+  }
+
+  .about-content {
+    max-width: 560px;
+    padding: 80px 32px 60px;
+    cursor: default;
+    color: rgba(255,255,255,0.75);
+    font-size: 15px;
+    line-height: 1.8;
+  }
+
+  .about-photo {
+    width: 120px;
+    border-radius: 10px;
+    margin-bottom: 2em;
+    opacity: 0.9;
+  }
+
+  .about-content p {
+    margin-bottom: 1.2em;
+  }
+
+  .about-content p:last-child {
+    margin-bottom: 0;
+  }
+
+  .about-content .about-title {
+    color: rgba(255,255,255,0.95);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 2em;
+  }
+
+  .about-content em {
+    color: rgba(255,255,255,0.9);
+    font-style: normal;
+  }
+
+  .about-close {
+    position: fixed;
+    top: 20px;
+    right: 24px;
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.4);
+    font-size: 32px;
+    cursor: pointer;
+    transition: color 0.2s;
+    z-index: 2001;
+  }
+
+  .about-close:hover {
+    color: rgba(255,255,255,0.8);
+  }
+
   /* -- lightbox -- */
   .lightbox {
     position: fixed;
@@ -268,6 +343,8 @@
     .lightbox-nav { display: none; }
     .bottom-controls { bottom: 16px; gap: 8px; }
     .control-btn { padding: 10px 22px; font-size: 11px; }
+    .about-content { padding: 70px 24px 40px; font-size: 14px; }
+    .about-photo { width: 100px; }
   }
 </style>
 </head>
@@ -280,12 +357,30 @@
   <div class="bottom-controls">
     <button class="control-btn" id="regenBtn">Regenerate</button>
     <button class="control-btn" id="videoBtn">&#9654;</button>
+    <button class="control-btn" id="aboutBtn">About</button>
   </div>
   <div class="site-mark" id="siteMark"><img src="wallsofmexicologo.png" alt="Walls of Mexico"></div>
 
   <div class="video-lightbox" id="videoLightbox">
     <button class="video-close" id="videoClose">&times;</button>
     <iframe id="videoFrame" src="" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+  </div>
+
+  <div class="about-overlay" id="aboutOverlay">
+    <button class="about-close" id="aboutClose">&times;</button>
+    <div class="about-content">
+      <img src="corn_sack_frames.webp" alt="Owen Seay" class="about-photo">
+      <p class="about-title">Walls of Mexico</p>
+      <p>If you take a photo whose dimensions are 3,024 &times; 3,024 pixels and you resize it down to just 1 &times; 1 pixel, you can imagine that when you look at that pixel it would be impossible to distinguish any color variation. To the naked eye, all the colors from the original photo would be concentrated into a single predominant color.</p>
+      <p>That's the basic premise at play here.</p>
+      <p>Walls of Mexico is a series of 100 photographs that I took in and around Valladolid, in the Yucat&aacute;n Peninsula. I resized all of the images down to individual pixels then extracted each one's predominant color and mapped it back to the corresponding wall that it was derived from.</p>
+      <p>In contrast to the stone, rock, plaster, and concrete that make up the physical walls, and in some instances, like <em>024 Templo</em>, are many centuries old, I built a single page website that uses the resulting palette of 100 extracted colors to produce generative digital patterns and textures like scatter, flow, grid, threads, and wave.</p>
+      <p>One of the patterns the website generates is called a voronoi diagram, and the way it works is very simple. 100 points, or &ldquo;seeds,&rdquo; are scattered randomly across the area of a given canvas and then all of the pixels that comprise that canvas are grouped into uniquely shaped cells based on their proximity to the 100 seed points. Every pixel in a given cell is located closest to the seed which that cell is built around, and in this case, the color assigned to those pixels represents a wall in Mexico that I happened to stop and take a photo of as I was walking down the street. No two patterns are ever the same!</p>
+      <p>The voronoi pattern looks familiar because it occurs throughout nature and can be seen in a giraffe's coat, dragonfly wings, cracked mud, plant cells, and many other places and applications.</p>
+      <p>If you want to see a particular wall up-close for yourself, you can click its pin and you'll be taken to the location in Google Maps where the photo was taken. Click street view to walk around and try to find the actual wall that was photographed. Some of them are easier to find than others, and some of them have been covered up or painted over since I took the photos, but most of them can still be found.</p>
+      <p>Can you find the handprint for wall <em>005 Hi</em>?</p>
+      <p style="margin-top: 2.5em; font-size: 12px; letter-spacing: 1px; opacity: 0.4;">&mdash; <a href="https://owenseay.com" target="_blank" style="color: inherit; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.3);">Owen Seay</a></p>
+    </div>
   </div>
 
   <div class="lightbox" id="lightbox">
@@ -771,6 +866,10 @@ document.getElementById('lbNext').addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (aboutOverlay.classList.contains('open')) {
+    if (e.key === 'Escape') aboutOverlay.classList.remove('open');
+    return;
+  }
   if (videoLightbox.classList.contains('open')) {
     if (e.key === 'Escape') closeVideo();
     return;
@@ -799,6 +898,18 @@ videoBtn.addEventListener('click', openVideo);
 videoClose.addEventListener('click', closeVideo);
 videoLightbox.addEventListener('click', (e) => {
   if (e.target === videoLightbox) closeVideo();
+});
+
+// ---- About overlay ----
+const aboutOverlay = document.getElementById('aboutOverlay');
+document.getElementById('aboutBtn').addEventListener('click', () => {
+  aboutOverlay.classList.add('open');
+});
+document.getElementById('aboutClose').addEventListener('click', () => {
+  aboutOverlay.classList.remove('open');
+});
+aboutOverlay.addEventListener('click', (e) => {
+  if (e.target === aboutOverlay) aboutOverlay.classList.remove('open');
 });
 
 // ---- Swipe gestures for lightbox ----
