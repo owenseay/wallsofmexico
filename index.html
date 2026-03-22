@@ -7,12 +7,12 @@
 <meta property="og:title" content="Walls of Mexico">
 <meta property="og:description" content="The walls of Mexico as pixels of color.">
 <meta property="og:type" content="website">
-<meta property="og:image" content="https://wallsofmexico.com/og-image.png">
+<meta property="og:image" content="https://wallsofmexico.com/og-image.jpg">
 <meta property="og:url" content="https://wallsofmexico.com">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Walls of Mexico">
 <meta name="twitter:description" content="The walls of Mexico as pixels of color.">
-<meta name="twitter:image" content="https://wallsofmexico.com/og-image.png">
+<meta name="twitter:image" content="https://wallsofmexico.com/og-image.jpg">
 <link rel="icon" href="favicon.ico">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Walls of Mexico</title>
@@ -168,14 +168,25 @@
     opacity: 1;
   }
 
+  .lightbox-img-wrap {
+    max-width: 88vw;
+    max-height: 80vh;
+    line-height: 0;
+  }
+
   .lightbox img {
     max-width: 88vw;
     max-height: 80vh;
     object-fit: contain;
-    transition: transform 0.2s ease, opacity 0.2s ease;
+    transition: transform 0.2s ease, opacity 0.35s ease;
     -webkit-user-drag: none;
     user-select: none;
     pointer-events: auto;
+  }
+
+  .lightbox img.loading {
+    opacity: 0;
+    transition: none;
   }
 
   .lightbox img.sliding {
@@ -280,7 +291,9 @@
   <div class="lightbox" id="lightbox">
     <button class="lightbox-nav lightbox-prev" id="lbPrev">&#8249;</button>
     <button class="lightbox-nav lightbox-next" id="lbNext">&#8250;</button>
-    <img id="lbImg" src="" alt="" draggable="false" oncontextmenu="return false">
+    <div class="lightbox-img-wrap" id="lbImgWrap">
+      <img id="lbImg" src="" alt="" draggable="false" oncontextmenu="return false">
+    </div>
     <div class="lightbox-info">
       <div class="lightbox-swatch" id="lbSwatch"></div>
       <div class="lightbox-name" id="lbName"></div>
@@ -524,21 +537,50 @@ function generateVoronoi(W, H) {
     w: w
   }));
 
+  // Spatial index: precompute nearby seed candidates per cell
+  const cellSize = Math.sqrt((W * H) / seeds.length);
+  const sCols = Math.ceil(W / cellSize);
+  const sRows = Math.ceil(H / cellSize);
+  const candidates = new Array(sCols * sRows);
+  for (let r = 0; r < sRows; r++) {
+    for (let c = 0; c < sCols; c++) {
+      const list = [];
+      for (let s = 0; s < seeds.length; s++) {
+        const sc = Math.floor(seeds[s].x / cellSize);
+        const sr = Math.floor(seeds[s].y / cellSize);
+        if (Math.abs(sc - c) <= 2 && Math.abs(sr - r) <= 2) list.push(s);
+      }
+      candidates[r * sCols + c] = list.length > 0 ? list : null;
+    }
+  }
+
   const step = 2;
   const gridCols = Math.ceil(W / step);
   const grid = new Uint8Array(gridCols * Math.ceil(H / step));
 
   for (let py = 0; py < H; py += step) {
+    const row = Math.min(Math.floor(py / cellSize), sRows - 1);
     for (let px = 0; px < W; px += step) {
+      const col = Math.min(Math.floor(px / cellSize), sCols - 1);
+      const cands = candidates[row * sCols + col];
+
       let minDist = Infinity;
       let nearest = 0;
-      for (let s = 0; s < seeds.length; s++) {
-        const dx = px - seeds[s].x;
-        const dy = py - seeds[s].y;
-        const d = dx * dx + dy * dy;
-        if (d < minDist) {
-          minDist = d;
-          nearest = s;
+      if (cands) {
+        for (let i = 0; i < cands.length; i++) {
+          const s = cands[i];
+          const dx = px - seeds[s].x;
+          const dy = py - seeds[s].y;
+          const d = dx * dx + dy * dy;
+          if (d < minDist) { minDist = d; nearest = s; }
+        }
+      } else {
+        // Fallback to brute force for empty regions
+        for (let s = 0; s < seeds.length; s++) {
+          const dx = px - seeds[s].x;
+          const dy = py - seeds[s].y;
+          const d = dx * dx + dy * dy;
+          if (d < minDist) { minDist = d; nearest = s; }
         }
       }
 
@@ -600,6 +642,7 @@ canvas.addEventListener('click', (e) => {
 
 // ---- Lightbox ----
 const lightbox = document.getElementById('lightbox');
+const lbImgWrap = document.getElementById('lbImgWrap');
 const lbImg = document.getElementById('lbImg');
 const lbName = document.getElementById('lbName');
 const lbSwatch = document.getElementById('lbSwatch');
@@ -644,23 +687,40 @@ function openLightbox(i) {
   lbIndex = i;
   buildQueue(i);
   const w = WALLS[i];
+  lbImgWrap.style.background = `rgb(${w.r},${w.g},${w.b})`;
+  lbImg.classList.add('loading');
   lbImg.src = 'med/' + w.file;
   lbImg.alt = w.name;
+  lbImg.onload = () => {
+    lbImg.classList.remove('loading');
+    lbImg.onload = null;
+  };
   lbName.textContent = w.name + ' ' + w.num;
   lbSwatch.style.background = w.hex;
   updateMapPin(w);
   lightbox.classList.add('open');
+  preloadNearby();
+}
+
+function preloadNearby() {
+  for (let i = 1; i <= 3; i++) {
+    const idx = (lbQueuePos + i) % lbQueue.length;
+    new Image().src = 'med/' + WALLS[lbQueue[idx]].file;
+  }
 }
 
 function closeLightbox() {
   lightbox.classList.remove('open');
+  lbImgWrap.style.background = '';
 }
 
 let isAnimating = false;
+let fallbackTimer = null;
 
 function navigateLb(dir) {
   if (isAnimating) return;
   isAnimating = true;
+  clearTimeout(fallbackTimer);
 
   // Fade out
   lbImg.classList.add('sliding');
@@ -670,6 +730,7 @@ function navigateLb(dir) {
     lbQueuePos = (lbQueuePos + dir + lbQueue.length) % lbQueue.length;
     lbIndex = lbQueue[lbQueuePos];
     const w = WALLS[lbIndex];
+    lbImgWrap.style.background = `rgb(${w.r},${w.g},${w.b})`;
     lbImg.src = 'med/' + w.file;
     lbImg.alt = w.name;
     lbName.textContent = w.name + ' ' + w.num;
@@ -678,20 +739,23 @@ function navigateLb(dir) {
 
     // Fade in once loaded
     lbImg.onload = () => {
+      clearTimeout(fallbackTimer);
       lbImg.classList.remove('sliding');
       lbImg.onload = null;
+      preloadNearby();
       setTimeout(() => { isAnimating = false; }, 200);
     };
     // Fallback in case onload doesn't fire (cached image)
-    setTimeout(() => {
+    fallbackTimer = setTimeout(() => {
       lbImg.classList.remove('sliding');
+      preloadNearby();
       isAnimating = false;
     }, 300);
   }, 200);
 }
 
 lightbox.addEventListener('click', (e) => {
-  if (e.target === lightbox || e.target === lbImg || e.target === lbName) {
+  if (e.target === lightbox || e.target === lbImg || e.target === lbImgWrap || e.target === lbName) {
     closeLightbox();
   }
 });
